@@ -7,8 +7,7 @@ edition = "2021"
 
 [dependencies]
 
-
-    [dependencies.sdl2]
-    version = "0.35"
-    default-features = false
-    features = ["ttf","image","gfx","mixer"]
+[dependencies.sdl2]
+version = "0.35"
+default-features = false
+features = ["ttf", "image", "gfx", "mixer"]
