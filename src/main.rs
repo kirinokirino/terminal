@@ -6,7 +6,9 @@
     clippy::must_use_candidate,
     clippy::missing_panics_doc
 )]
+#![feature(slice_flatten)]
 
+use itertools::{FoldWhile, Itertools};
 use sdl2::event::Event;
 use sdl2::keyboard::{Keycode, Mod};
 use sdl2::pixels::Color;
@@ -20,8 +22,14 @@ use std::error::Error;
 use std::path::{Path, PathBuf};
 use std::process::Command;
 
-static SCREEN_WIDTH: u16 = 800;
-static SCREEN_HEIGHT: u16 = 600;
+const FONT_SIZE: u16 = 16;
+static mut LINE_HEIGHT: u16 = (FONT_SIZE as f32 * 1.5) as u16;
+
+const SCREEN_CHAR_WIDTH: u16 = 60;
+const SCREEN_CHAR_HEIGHT: u16 = 25;
+
+static SCREEN_WIDTH: u16 = FONT_SIZE * SCREEN_CHAR_WIDTH;
+static SCREEN_HEIGHT: u16 = FONT_SIZE * SCREEN_CHAR_HEIGHT;
 
 // handle the annoying Rect i32
 macro_rules! rect(
@@ -113,7 +121,12 @@ impl App {
         // Load a font
         //let font_path: &Path = Path::new("/usr/share/fonts/noto-cjk/NotoSansCJK-Regular.ttc");
         let font_path: &Path = Path::new("./assets/fonts/VictorMono-Regular.ttf");
-        let mut font = ttf_context.load_font(font_path, 24)?;
+        let mut font = ttf_context.load_font(font_path, FONT_SIZE)?;
+        let line_height = unsafe {
+            LINE_HEIGHT = font.recommended_line_spacing() as u16;
+            LINE_HEIGHT
+        };
+        let screen_line_height: u16 = SCREEN_HEIGHT / line_height;
         font.set_style(sdl2::ttf::FontStyle::NORMAL);
 
         'mainloop: loop {
@@ -130,6 +143,26 @@ impl App {
                             AppAction::RunCommand => {
                                 if let Ok(append) = Self::run_command(&self.command_line) {
                                     self.buffer.push_str(&append);
+                                    self.buffer = self
+                                        .buffer
+                                        .clone()
+                                        .drain(..)
+                                        .rev()
+                                        .fold_while(String::new(), |mut string, char| {
+                                            if char == '\n'
+                                                && string.lines().count()
+                                                    >= (screen_line_height).into()
+                                            {
+                                                FoldWhile::Done(string)
+                                            } else {
+                                                string.push(char);
+                                                FoldWhile::Continue(string)
+                                            }
+                                        })
+                                        .into_inner()
+                                        .drain(..)
+                                        .rev()
+                                        .collect();
                                     self.command_line = String::new();
                                 }
                             }
@@ -138,11 +171,16 @@ impl App {
                 }
             }
 
-            let prompt = "> ";
+            let prompt = "\n> ";
             // render a surface, and convert it to a texture bound to the canvas
+
             let surface = font
-                .render(&format!("{}\n{prompt}{}", &self.buffer, &self.command_line))
-                .blended_wrapped(Color::RGBA(170, 170, 170, 255), 0)
+                .render(&format!(
+                    "{}{prompt}{}",
+                    &self.buffer.trim_end(),
+                    &self.command_line
+                ))
+                .blended_wrapped(Color::RGBA(170, 170, 170, 255), 0) //SCREEN_WIDTH.into())
                 .map_err(|e| e.to_string())?;
             let texture = self
                 .texture_creator
